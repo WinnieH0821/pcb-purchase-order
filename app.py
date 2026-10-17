@@ -482,15 +482,16 @@ st.session_state["_last_order_no_default"] = current_order_prefix
 st.info(f"訂單編號會依目前月份自動帶入前綴：{current_order_prefix}；請直接在同一欄位最後輸入流水號，例如 {current_order_prefix}035。客戶料號會依供應商代號自動補上前綴。")
 
 st.markdown("#### 供應商與客戶料號")
-supplier = st.selectbox(
-    "廠商名稱 *（可下拉選擇，也可直接輸入新名稱）",
-    options=list(SUPPLIERS.keys()),
-    accept_new_options=True,
-    key="supplier",
-    on_change=on_supplier_change,
-    help="目前已建檔：比斯捷科技(深圳)有限公司；選取後會自動帶入聯絡人、電話與已設定的公司代號。",
-)
-contact_col, phone_col = st.columns(2)
+supplier_col, contact_col, phone_col = st.columns(3)
+with supplier_col:
+    supplier = st.selectbox(
+        "廠商名稱 *（可下拉選擇，也可直接輸入新名稱）",
+        options=list(SUPPLIERS.keys()),
+        accept_new_options=True,
+        key="supplier",
+        on_change=on_supplier_change,
+        help="目前已建檔：比斯捷科技(深圳)有限公司；選取後會自動帶入聯絡人、電話與已設定的公司代號。",
+    )
 with contact_col:
     contact = st.text_input("聯絡人 *", key="contact")
 with phone_col:
