@@ -429,15 +429,15 @@ st.info("訂單號碼格式固定為 MH26A-10-XXX：MH26A-10- 是固定前綴，
 with st.form("po_form"):
     left, right = st.columns(2)
     with left:
-        st.text_input("訂單號碼固定前綴", value="MH26A-10-", disabled=True)
-        order_suffix = st.text_input("訂單流水號 XXX（自行填寫）*", key="order_suffix", placeholder="例如：035，Word 會顯示 MH26A-10-035")
+        order_no_input = st.text_input("訂單號碼 *（可直接編輯完整編號）", value="MH26A-10-XXX", key="order_no", help="預設為 MH26A-10-XXX；請直接修改最後的 XXX，例如 MH26A-10-035。")
         order_date = st.text_input("訂購日期 *", value=date.today().strftime("%Y/%m/%d"))
         customer_pn = st.text_input("客戶料號（依來源料號欄位填寫）*", key="customer_pn")
         internal_pn = st.text_input("銘星料號 *", key="internal_pn")
         product_name = st.text_input("項目／產品名稱 *", key="product_name")
         qty = st.text_input("訂購數量（採購單實際下單量）*", placeholder="例如：60 pcs + 備品 2 set", key="qty")
         price = st.text_input("價格／打包價 *", key="price", placeholder="例如：打包價 USD$450")
-        due = st.text_input("交期 *", placeholder="例如：2026/10/30 前到銘星", key="due")
+        due_date_input = st.date_input("交期 *（點選日曆選日期）", value=date.today(), format="YYYY/MM/DD")
+        due = due_date_input.strftime("%Y/%m/%d")
         delivery = st.text_input("交貨地點 *", key="delivery")
         payment = st.text_input("付款方式 *", key="payment")
     with right:
@@ -454,18 +454,15 @@ with st.form("po_form"):
         packaging = st.text_input("包裝方式 *（預填，請人工核對）", key="packaging")
         maker = st.text_input("製表者 *", key="maker")
 
-    st.markdown("#### 數量差異確認")
-    request_qty = st.text_input("申請資料數量（供比較，請人工核對）", key="request_qty")
-    st.caption("送出表單時會比對申請數量與採購數量。若數量不同，系統會顯示提醒，必須人工核對並勾選確認；若無法辨識申請數量，也必須人工確認。若數量相同，無須勾選差異確認。若來源是 Excel 製程表，請先確認批數、排版數或 PCS 是否代表採購需求量。")
-    qty_confirm = st.checkbox("數量不一致或無法辨識申請數量時：我已人工核對，並確認本次下單量正確。")
     submitted = st.form_submit_button("產生採購單 Word", type="primary")
 
 if submitted:
-    # 訂單號碼使用固定前綴與使用者輸入的流水號，絕不以料號代替。
-    order_no = "MH26A-10-" + order_suffix.strip()
+    # 訂單號碼整欄可編輯；預設 MH26A-10-XXX，由使用者自行改成完整編號。
+    order_no = order_no_input.strip()
+    due = due_date_input.strftime("%Y/%m/%d")
     final_customer_pn = customer_pn.strip()
     required = {
-        "訂單號碼流水號 XXX": order_suffix, "訂購日期": order_date, "客戶料號": customer_pn,
+        "訂單號碼": order_no, "訂購日期": order_date, "客戶料號": customer_pn,
         "銘星料號": internal_pn, "項目／產品名稱": product_name, "訂購數量": qty,
         "價格／打包價": price, "交期": due, "交貨地點": delivery, "付款方式": payment,
         "廠商名稱": supplier, "聯絡人": contact, "聯絡電話": phone,
@@ -474,22 +471,8 @@ if submitted:
         "重要備註": notes, "包裝方式": packaging, "製表者": maker,
     }
     missing = [key for key, value in required.items() if not value.strip()]
-    quantity_available = bool(request_qty.strip())
-    quantity_matches = quantities_match(request_qty, qty) if quantity_available and qty.strip() else False
-    quantity_differs = quantity_available and bool(qty.strip()) and not quantity_matches
-
-    if quantity_differs:
-        st.warning(
-            f"數量差異提醒：申請資料數量為「{request_qty.strip()}」，"
-            f"本次採購數量為「{qty.strip()}」。請人工核對；勾選下方確認後，才能產生採購單。"
-        )
-
     if missing:
         st.error("請先填寫必填欄位：" + "、".join(missing))
-    elif quantity_differs and not qty_confirm:
-        st.error("申請數量與採購數量不同，請先人工核對並勾選「數量差異確認」，再按一次產生採購單。")
-    elif not quantity_available and not qty_confirm:
-        st.warning("未能取得申請資料數量，請人工核對原始申請資料與本次採購數量，勾選確認後才能產生採購單。")
     elif not DEFAULT_TEMPLATE.exists():
         st.error("找不到範本檔：請確認「採購單範本.docx」與 app.py 放在同一資料夾。")
     else:
