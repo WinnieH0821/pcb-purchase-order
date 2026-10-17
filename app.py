@@ -1,6 +1,5 @@
 from pathlib import Path
-from datetime import date, datetime
-from zoneinfo import ZoneInfo
+from datetime import date
 import re
 import io
 
@@ -38,50 +37,23 @@ def quantities_match(request_value, order_value):
         return request_number == order_number and units_match
     return request_norm == order_norm
 
-# 供應商主檔：目前先建立第一家；後續供應商可沿用相同欄位結構新增。
-SUPPLIERS = {
-    "比斯捷科技(深圳)有限公司": {
-        "contact": "熊小輝",
-        "phone": "137 14444 4149",
-        "code": "901",
-    },
-}
-
-
-def apply_supplier_code(part_number, supplier_name):
-    """只移除已建檔的供應商代號；保留 3403105-EXP 這類本身屬於料號的數字前綴。"""
-    pn = str(part_number or "").strip()
-    if not pn:
-        return ""
-    # 僅移除供應商主檔中已知的公司代號，不把任意「數字-」誤認成公司代號。
-    known_codes = {
-        str(info.get("code", "")).strip()
-        for info in SUPPLIERS.values()
-        if str(info.get("code", "")).strip()
-    }
-    for known_code in sorted(known_codes, key=len, reverse=True):
-        pn = re.sub(rf"^{re.escape(known_code)}-", "", pn)
-    supplier_info = SUPPLIERS.get(str(supplier_name or "").strip(), {})
-    code = str(supplier_info.get("code", "")).strip()
-    if not code:
-        return pn
-    return f"{code}-{pn}"
-
-def on_supplier_change():
-    supplier_name = str(st.session_state.get("supplier", "") or "").strip()
-    supplier_info = SUPPLIERS.get(supplier_name, {})
-    st.session_state["contact"] = supplier_info.get("contact", "")
-    st.session_state["phone"] = supplier_info.get("phone", "")
-    st.session_state["customer_pn"] = apply_supplier_code(
-        st.session_state.get("customer_pn", ""), supplier_name
-    )
-
-
 st.set_page_config(page_title="PCB 採購單產生器", page_icon="📄", layout="wide")
 st.title("PCB 採購單自動產生器")
 st.caption("申請資料支援 Word / Excel；輸出一律為 Word。輸出前請人工核對料號、數量與交期。")
 
 DEFAULT_TEMPLATE = Path(__file__).with_name("採購單範本.docx")
+
+# 廠商主檔：未提供的資料保持空白；同一廠商有多位聯絡人時分開保留。
+SUPPLIER_MASTER = [
+    {"廠商名稱": "江西技研新陽電子有限公司", "聯絡人": "丁傳聰", "電話": ""},
+    {"廠商名稱": "磊鑫达电子（香港）有限公司", "聯絡人": "刘家豪", "電話": ""},
+    {"公司代號": "901", "廠商名稱": "清遠市富盈電子有限公司", "聯絡人": "孫維民", "電話": ""},
+    {"廠商名稱": "威爾高電子科技有限公司", "聯絡人": "業務協理 蘇泰安先生", "電話": "(886)-935-201408"},
+    {"廠商名稱": "東菀東潤供應鏈科技有限公司", "聯絡人": "江葉", "電話": ""},
+    {"廠商名稱": "江門市奔力達電路有限公司", "聯絡人": "業務經理 Steven 滕浩宇先生", "電話": "86-15950161496"},
+    {"公司代號": "U01", "廠商名稱": "杭州睿杰鑫电子有限公司", "聯絡人": "業務 姜遷先生", "電話": "18170274966"},
+    {"公司代號": "U01", "廠商名稱": "杭州睿杰鑫电子有限公司", "聯絡人": "業務 熊小輝先生", "電話": "137 1444 4149"},
+]
 
 
 def docx_to_text(uploaded):
@@ -441,9 +413,10 @@ if "_last_request_signature" not in st.session_state or upload_signature != st.s
             "請完全依照銘星提供之資料製作；請注意板件上不能有 Made In Taiwan 字樣"
         ),
         # 供應商相關欄位每次由使用者自行填寫；保留本公司交貨地點。
-        "supplier": "比斯捷科技(深圳)有限公司",
-        "contact": "熊小輝",
-        "phone": "137 14444 4149",
+        "company_code": "",
+        "supplier": "",
+        "contact": "",
+        "phone": "",
         "price": "打包價 USD$450",
         "payment": "月結 60 天",
         "delivery": "銘星科技有限公司",
@@ -451,20 +424,10 @@ if "_last_request_signature" not in st.session_state or upload_signature != st.s
         "inspection": "IPC 2 級",
         "notes": "打叉方式：黑筆雙面打叉，4 UP 允收單報，訂單總數 5% 內（此批打樣不收單報）；測試章：黑色 ET 章，有板邊的蓋在板邊料號旁，沒板邊的蓋在週期旁",
         "packaging": "透明真空袋＋濕度卡（放側邊）＋乾燥包 6g（放側邊）",
-        "internal_pn": "M056D6026A2",
         "maker": "Sally 劉曼姣",
     }
     for field_key, field_value in auto_fields.items():
         st.session_state[field_key] = field_value
-    st.session_state["customer_pn"] = apply_supplier_code(
-        st.session_state.get("customer_pn", ""), st.session_state.get("supplier", "")
-    )
-
-# 將既有工作階段的舊預設值更新一次，並保留使用者已修改的銘星料號。
-if st.session_state.get("maker") == "劉曼姣":
-    st.session_state["maker"] = "Sally 劉曼姣"
-if not st.session_state.get("internal_pn"):
-    st.session_state["internal_pn"] = "M056D6026A2"
 
 st.subheader("2. 每次重新輸入採購單資料")
 taiwan_today = datetime.now(ZoneInfo("Asia/Taipei")).date()
@@ -479,31 +442,49 @@ if (
     st.session_state["order_no"] = current_order_prefix
 st.session_state["_last_order_no_default"] = current_order_prefix
 
-st.info(f"訂單編號會依目前月份自動帶入前綴：{current_order_prefix}；請直接在同一欄位最後輸入流水號，例如 {current_order_prefix}035。客戶料號會依供應商代號自動補上前綴。")
+st.info(
+    f"訂單編號會依目前月份自動帶入前綴：{current_order_prefix}；"
+    f"請直接在同一欄位最後輸入流水號，例如 {current_order_prefix}035。"
+    "公司代號可選填、修改或清空；客戶料號與訂單編號是不同欄位。"
+    "每次修改欄位後，請重新按「產生採購單 Word」，再下載最新檔案。"
+)
 
-st.markdown("#### 供應商與客戶料號")
-supplier_col, contact_col, phone_col = st.columns(3)
-with supplier_col:
-    supplier = st.selectbox(
-        "廠商名稱 *（可下拉選擇，也可直接輸入新名稱）",
-        options=list(SUPPLIERS.keys()),
-        accept_new_options=True,
-        key="supplier",
-        on_change=on_supplier_change,
-        help="目前已建檔：比斯捷科技(深圳)有限公司；選取後會自動帶入聯絡人、電話與已設定的公司代號。",
-    )
-with contact_col:
-    contact = st.text_input("聯絡人 *", key="contact")
-with phone_col:
-    phone = st.text_input("聯絡電話 *", key="phone")
-customer_pn = st.text_input("客戶料號（選擇供應商後自動加上公司代號，可手動修改）*", key="customer_pn")
+def apply_supplier_preset():
+    selected = st.session_state.get("supplier_preset", "")
+    if selected and selected != "自行輸入／不指定":
+        index = int(selected.split("｜")[0])
+        vendor = SUPPLIER_MASTER[index]
+        st.session_state["supplier"] = vendor.get("廠商名稱", "")
+        st.session_state["contact"] = vendor.get("聯絡人", "")
+        st.session_state["phone"] = vendor.get("電話", "")
+        st.session_state["company_code"] = vendor.get("公司代號", "")
+
+vendor_options = ["自行輸入／不指定"] + [
+    f"{i}｜{vendor['廠商名稱']}｜{vendor.get('聯絡人', '')}"
+    for i, vendor in enumerate(SUPPLIER_MASTER)
+]
+st.selectbox(
+    "快速帶入廠商資料（可再手動修改）",
+    vendor_options,
+    key="supplier_preset",
+    on_change=apply_supplier_preset,
+)
 
 with st.form("po_form"):
     left, right = st.columns(2)
     with left:
-        order_no_input = st.text_input("訂單號碼 *（月份自動帶入，流水號自行輸入）", key="order_no", help="月份會依目前日期自動更新；請在最後的連字號後輸入流水號，例如 MH26A-11-035。")
+        order_no_input = st.text_input(
+            "訂單號碼 *（月份自動帶入，流水號自行輸入）",
+            key="order_no",
+            help="月份會依目前日期自動更新；請在最後的連字號後輸入流水號，例如 MH26A-11-035。",
+        )
         order_date = st.text_input("訂購日期 *", value=date.today().strftime("%Y/%m/%d"))
-        internal_pn = st.text_input("銘星料號 *", key="internal_pn")
+        code_col, pn_col = st.columns([1, 2])
+        with code_col:
+            company_code = st.text_input("公司代號（選填，可刪除）", key="company_code", placeholder="例如：901")
+        with pn_col:
+            customer_pn = st.text_input("客戶料號（不含公司代號時可直接填寫）*", key="customer_pn")
+        internal_pn = st.text_input("銘星料號 *")
         product_name = st.text_input("項目／產品名稱 *", key="product_name")
         qty = st.text_input("訂購數量（採購單實際下單量）*", placeholder="例如：60 pcs + 備品 2 set", key="qty")
         price = st.text_input("價格／打包價 *", key="price", placeholder="例如：打包價 USD$450")
@@ -512,6 +493,13 @@ with st.form("po_form"):
         delivery = st.text_input("交貨地點 *", key="delivery")
         payment = st.text_input("付款方式 *", key="payment")
     with right:
+        vendor_col, contact_col, phone_col = st.columns(3)
+        with vendor_col:
+            supplier = st.text_input("廠商名稱 *", key="supplier")
+        with contact_col:
+            contact = st.text_input("聯絡人 *", key="contact")
+        with phone_col:
+            phone = st.text_input("聯絡電話 *", key="phone")
         production = st.text_area("製作內容／特殊要求 *", height=90, key="production")
         material = st.text_input("材料板厚 *", key="material")
         copper = st.text_input("銅厚 *", key="copper")
@@ -522,25 +510,49 @@ with st.form("po_form"):
         packaging = st.text_input("包裝方式 *（預填，請人工核對）", key="packaging")
         maker = st.text_input("製表者 *", key="maker")
 
+    st.markdown("#### 數量差異確認")
+    request_qty = st.text_input("申請資料數量（供比較，請人工核對）", key="request_qty")
+    st.caption("送出表單時會比對申請數量與採購數量。若數量不同，系統會顯示提醒，必須人工核對並勾選確認；若無法辨識申請數量，也必須人工確認。若數量相同，無須勾選差異確認。若來源是 Excel 製程表，請先確認批數、排版數或 PCS 是否代表採購需求量。")
+    qty_confirm = st.checkbox("數量不一致或無法辨識申請數量時：我已人工核對，並確認本次下單量正確。")
     submitted = st.form_submit_button("產生採購單 Word", type="primary")
 
 if submitted:
-    # 訂單號碼整欄可編輯；預設 MH26A-10-XXX，由使用者自行改成完整編號。
+    # 訂單號碼整欄可編輯；預設為當月前綴，由使用者直接輸入流水號。
     order_no = order_no_input.strip()
     due = due_date_input.strftime("%Y/%m/%d") + " 前到銘星"
-    final_customer_pn = apply_supplier_code(customer_pn.strip(), supplier)
+    final_customer_pn = customer_pn.strip()
+    # 公司代號為選填：有填才加在客戶料號前；若料號已含 901/U01 前綴，先去除舊前綴避免重複。
+    code = company_code.strip()
+    if code:
+        final_customer_pn = re.sub(r"^(?:901|U01)-", "", final_customer_pn, flags=re.I)
+        if not final_customer_pn.upper().startswith(code.upper() + "-"):
+            final_customer_pn = f"{code}-{final_customer_pn}" if final_customer_pn else code
     required = {
         "訂單號碼": order_no, "訂購日期": order_date, "客戶料號": customer_pn,
         "銘星料號": internal_pn, "項目／產品名稱": product_name, "訂購數量": qty,
         "價格／打包價": price, "交期": due, "交貨地點": delivery, "付款方式": payment,
-        "廠商名稱": supplier, "聯絡人": contact, "聯絡電話": phone,
+        "廠商名稱": supplier,
         "製作內容／特殊要求": production, "材料板厚": material, "銅厚": copper,
         "防焊／文字顏色": solder, "表面處理": finish, "檢驗標準": inspection,
         "重要備註": notes, "包裝方式": packaging, "製表者": maker,
     }
     missing = [key for key, value in required.items() if not value.strip()]
+    quantity_available = bool(request_qty.strip())
+    quantity_matches = quantities_match(request_qty, qty) if quantity_available and qty.strip() else False
+    quantity_differs = quantity_available and bool(qty.strip()) and not quantity_matches
+
+    if quantity_differs:
+        st.warning(
+            f"數量差異提醒：申請資料數量為「{request_qty.strip()}」，"
+            f"本次採購數量為「{qty.strip()}」。請人工核對；勾選下方確認後，才能產生採購單。"
+        )
+
     if missing:
         st.error("請先填寫必填欄位：" + "、".join(missing))
+    elif quantity_differs and not qty_confirm:
+        st.error("申請數量與採購數量不同，請先人工核對並勾選「數量差異確認」，再按一次產生採購單。")
+    elif not quantity_available and not qty_confirm:
+        st.warning("未能取得申請資料數量，請人工核對原始申請資料與本次採購數量，勾選確認後才能產生採購單。")
     elif not DEFAULT_TEMPLATE.exists():
         st.error("找不到範本檔：請確認「採購單範本.docx」與 app.py 放在同一資料夾。")
     else:
@@ -574,13 +586,11 @@ if submitted:
             output_bytes = io.BytesIO()
             doc.save(output_bytes)
             output_bytes.seek(0)
-            # 檔名使用銘星料號＋供應商簡稱（例如「M056D6026A2_比斯捷.docx」）。
-            safe_internal_pn = re.sub(r'[<>:"/\\|?*]', "_", internal_pn.strip()).strip(" ._")
-            supplier_short = re.sub(r"(科技.*|有限公司.*|有限责任公司.*|股份有限公司.*|公司.*)$", "", supplier.strip()).strip()
-            if not supplier_short:
-                supplier_short = supplier.strip()
-            safe_supplier_short = re.sub(r'[<>:"/\\|?*]', "_", supplier_short).strip(" ._")
-            output_filename = f"{safe_internal_pn or '銘星料號'}_{safe_supplier_short or '供應商'}.docx"
+            # 檔名使用完整客戶料號＋供應商名稱，並清除 Windows 不允許的檔名字元。
+            safe_pn = re.sub(r'[<>:"/\\|?*]', "_", final_customer_pn).strip(" ._")
+            safe_supplier = re.sub(r'[<>:"/\\|?*]', "_", supplier).strip(" ._")
+            safe_order = re.sub(r'[<>:"/\\|?*]', "_", order_no).strip(" ._")
+            output_filename = f"{safe_order}_{safe_supplier}.docx" if safe_order and safe_supplier else f"{safe_order or '採購單'}_{safe_supplier or '未填供應商'}.docx"
             st.download_button(
                 "下載採購單 Word",
                 data=output_bytes.getvalue(),
