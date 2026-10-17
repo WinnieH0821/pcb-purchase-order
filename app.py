@@ -1,5 +1,6 @@
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 import re
 import io
 
@@ -461,7 +462,8 @@ if not st.session_state.get("internal_pn"):
     st.session_state["internal_pn"] = "M056D6026A2"
 
 st.subheader("2. 每次重新輸入採購單資料")
-current_order_prefix = f"MH{date.today().strftime('%y')}A-{date.today().strftime('%m')}-"
+taiwan_today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+current_order_prefix = f"MH{taiwan_today.strftime('%y')}A-{taiwan_today.strftime('%m')}-"
 previous_default = st.session_state.get("_last_order_no_default")
 current_order_value = st.session_state.get("order_no")
 if (
@@ -478,7 +480,6 @@ st.markdown("#### 供應商與客戶料號")
 supplier = st.selectbox(
     "廠商名稱 *（可下拉選擇，也可直接輸入新名稱）",
     options=list(SUPPLIERS.keys()),
-    index=0 if st.session_state.get("supplier") in (None, "") else None,
     accept_new_options=True,
     key="supplier",
     on_change=on_supplier_change,
