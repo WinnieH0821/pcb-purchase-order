@@ -411,10 +411,17 @@ if "_last_request_signature" not in st.session_state or upload_signature != st.s
         "inspection": "IPC 2 級",
         "notes": "打叉方式：黑筆雙面打叉，4 UP 允收單報，訂單總數 5% 內（此批打樣不收單報）；測試章：黑色 ET 章，有板邊的蓋在板邊料號旁，沒板邊的蓋在週期旁",
         "packaging": "透明真空袋＋濕度卡（放側邊）＋乾燥包 6g（放側邊）",
-        "maker": "劉曼姣",
+        "internal_pn": "M056D6026A2",
+        "maker": "Sally 劉曼姣",
     }
     for field_key, field_value in auto_fields.items():
         st.session_state[field_key] = field_value
+
+# 將既有工作階段的舊預設值更新一次，並保留使用者已修改的銘星料號。
+if st.session_state.get("maker") == "劉曼姣":
+    st.session_state["maker"] = "Sally 劉曼姣"
+if not st.session_state.get("internal_pn"):
+    st.session_state["internal_pn"] = "M056D6026A2"
 
 st.subheader("2. 每次重新輸入採購單資料")
 st.info("訂單號碼格式固定為 MH26A-10-XXX：MH26A-10- 是固定前綴，最後的 XXX 由你自行輸入流水號。客戶料號與訂單號碼是不同欄位，互不連動。每次修改欄位後，請重新按「產生採購單 Word」，再下載最新產生的檔案。")
@@ -423,10 +430,10 @@ with st.form("po_form"):
     left, right = st.columns(2)
     with left:
         st.text_input("訂單號碼固定前綴", value="MH26A-10-", disabled=True)
-        order_suffix = st.text_input("訂單流水號 XXX（自行填寫）*", key="order_suffix", placeholder="例如：035")
+        order_suffix = st.text_input("訂單流水號 XXX（自行填寫）*", key="order_suffix", placeholder="例如：035，Word 會顯示 MH26A-10-035")
         order_date = st.text_input("訂購日期 *", value=date.today().strftime("%Y/%m/%d"))
         customer_pn = st.text_input("客戶料號（依來源料號欄位填寫）*", key="customer_pn")
-        internal_pn = st.text_input("銘星料號 *")
+        internal_pn = st.text_input("銘星料號 *", key="internal_pn")
         product_name = st.text_input("項目／產品名稱 *", key="product_name")
         qty = st.text_input("訂購數量（採購單實際下單量）*", placeholder="例如：60 pcs + 備品 2 set", key="qty")
         price = st.text_input("價格／打包價 *", key="price", placeholder="例如：打包價 USD$450")
@@ -488,6 +495,7 @@ if submitted:
     else:
         replacements = {
             "MH26A-10-035": order_no,
+            "MH26A-10-XXX": order_no,
             "2026/10/16": order_date,
             "901-W00G-F1012TSA3": final_customer_pn,
             "M056D6026A2": internal_pn,
