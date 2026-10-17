@@ -58,7 +58,7 @@ def docx_to_text(uploaded):
             values = []
             seen_cells = set()
             for cell in row.cells:
-                key = id(cell._tc)
+                key = cell._tc
                 if key in seen_cells:
                     continue
                 seen_cells.add(key)
@@ -118,8 +118,8 @@ def extract_request_fields_by_rows(text):
     """針對實際 PCB 製作申請單常見的「欄位 | 值」表格列擷取資料。"""
     found = {}
     row_rules = {
-        # 訂單編號在部分客戶文件中會被用作料號；先列為候選，來源仍需人工核對。
-        "客戶料號": ["產品料號", "客戶料號", "客戶產品 P/N", "客戶產品 PN", "訂單編號", "訂單號碼", "訂單號", "Order Number", "Order No.", "Order No", "Part Number", "Part No.", "P/N", "Model Number", "Product Code", "料號"],
+        # 僅使用明確的料號標籤；訂單編號不視為料號。
+        "客戶料號": ["產品料號", "客戶料號", "客戶產品 P/N", "客戶產品 PN", "Part Number", "Part No.", "P/N", "Model Number", "Product Code", "料號"],
         "產品名稱": ["產品名稱", "產品名", "品名", "Product Name", "Item Description", "Description"],
         "需求數量": ["PCB需求量", "PCB 需求量", "PCB需求數量", "採購數量", "訂購數量", "需求數量", "需求量", "數量", "Qty", "Quantity", "Order Quantity", "Required Qty"],
         "專案編號": ["專案編號", "Project No", "Project Number", "Project"],
@@ -199,7 +199,7 @@ def extract_request(uploaded):
         # Word 申請單的表格可能會重複標籤，規則允許跳過重複標籤後再取值。
         # 支援一般申請單的「客戶料號／產品料號」，也支援本次 Word 檢查表中的「料號：W00G-F1100TPA4」。
         # 「料號」必須緊接冒號或表格分隔符，避免誤抓內文中的「加料號&版本」。
-        "客戶料號": r"(?:客戶產品\s*P/?N|產品料號|客戶料號|訂單編號|訂單號碼|訂單號|Order\s*(?:Number|No\.?)|Part\s*(?:Number|No\.?)|P/N|料號|Model\s*Number|Product\s*Code)(?:\s*\|\s*(?:客戶產品\s*P/?N|產品料號|客戶料號|訂單編號|訂單號碼|訂單號|Order\s*(?:Number|No\.?)|Part\s*(?:Number|No\.?)|P/N|料號|Model\s*Number|Product\s*Code))*\s*[:：|]\s*([A-Z0-9][A-Z0-9._/-]{3,})",
+        "客戶料號": r"(?:客戶產品\s*P/?N|產品料號|客戶料號|Part\s*(?:Number|No\.?)|P/N|料號|Model\s*Number|Product\s*Code)(?:\s*\|\s*(?:客戶產品\s*P/?N|產品料號|客戶料號|Part\s*(?:Number|No\.?)|P/N|料號|Model\s*Number|Product\s*Code))*\s*[:：|]\s*([A-Z0-9][A-Z0-9._/-]{3,})",
         "需求數量": r"(?:PCB\s*需求量|PCB\s*需求數量|採購數量|訂購數量|需求數量|需求量|數量|Qty|Quantity|Order\s*Quantity|Required\s*Qty)(?:\s*\|\s*(?:PCB\s*需求量|PCB\s*需求數量|採購數量|訂購數量|需求數量|需求量|數量|Qty|Quantity|Order\s*Quantity|Required\s*Qty))*\s*[:：|]\s*([0-9,]+(?:\.[0-9]+)?\s*(?:PCS|PC|片|SET|套|個|件)?)",
         "產品名稱": r"(?:產品名稱|產品名|品名|Product\s*Name|Item\s*Description|Description)(?:\s*\|\s*(?:產品名稱|產品名|品名|Product\s*Name|Item\s*Description|Description))*\s*[:：|]?\s*([^|\n]{2,80})",
         "專案編號": r"(?:專案編號|Project\s*(?:No\.?|Number)?)(?:\s*\|\s*(?:專案編號|Project\s*(?:No\.?|Number)?))*\s*[:：|]?\s*([A-Z0-9_-]+)",
@@ -222,14 +222,14 @@ def extract_request(uploaded):
             found[key] = value
 
     # 建立料號候選清單與辨識依據，避免文件有多個編號時只呈現單一猜測。
-    pn_labels = r"(?:客戶產品\s*P/?N|產品料號|客戶料號|訂單編號|訂單號碼|訂單號|Order\s*(?:Number|No\.?)|Part\s*(?:Number|No\.?)|P/N|料號|Model\s*Number|Product\s*Code)"
+    pn_labels = r"(?:客戶產品\s*P/?N|產品料號|客戶料號|Part\s*(?:Number|No\.?)|P/N|料號|Model\s*Number|Product\s*Code)"
     pn_candidates = []
     for line_no, line in enumerate(text.splitlines(), start=1):
         m = re.search(pn_labels + r"\s*[:：|]\s*([A-Z0-9][A-Z0-9._/-]{3,})", line, re.I)
         if m:
             label = re.search(pn_labels, line, re.I).group(0)
             value = m.group(1).strip()
-            confidence = "高" if re.search(r"料號|Part\s*(?:Number|No\.?)|P/N|Product\s*Code", label, re.I) else "中（訂單編號可能是訂單流水號，請確認是否等同料號）"
+            confidence = "高" if re.search(r"料號|Part\s*(?:Number|No\.?)|P/N|Product\s*Code", label, re.I) else "中（請核對是否為客戶料號）"
             item = {"候選值": value, "欄位標籤": label, "來源行": line_no, "信心提示": confidence}
             if item not in pn_candidates:
                 pn_candidates.append(item)
@@ -319,15 +319,16 @@ def replace_doc_text(doc, replacements, delivery_value):
             cells = []
             seen_row = set()
             for cell in row.cells:
-                key = id(cell._tc)
+                key = cell._tc
                 if key not in seen_row:
                     seen_row.add(key)
                     cells.append(cell)
             if any("交貨地點" in cell.text for cell in cells):
+                # 交貨地點與付款方式位於同一個合併儲存格，僅在這一列替換公司名稱，避免改到頁首抬頭。
                 for cell in cells:
-                    if cell.text.strip() == "銘星科技有限公司":
+                    if "交貨地點" not in cell.text and "銘星科技有限公司" in cell.text:
                         for paragraph in cell.paragraphs:
-                            set_paragraph_text(paragraph, delivery_value)
+                            replace_paragraph(paragraph, {**replacements, "銘星科技有限公司": delivery_value})
 
     for paragraph in doc.paragraphs:
         replace_paragraph(paragraph, replacements)
@@ -336,7 +337,7 @@ def replace_doc_text(doc, replacements, delivery_value):
         seen = set()
         for row in table.rows:
             for cell in row.cells:
-                key = id(cell._tc)
+                key = cell._tc
                 if key in seen:
                     continue
                 seen.add(key)
@@ -363,7 +364,7 @@ if extracted:
     st.json(display_fields if display_fields else {"提示": "沒有找到足夠明確的欄位。請以原始檔案為準，並在下方人工填寫。"})
     if extracted.get("料號候選清單"):
         st.markdown("#### 料號候選與辨識依據")
-        st.caption("「料號／Part Number」標籤通常較可信；「訂單編號／Order No」可能是訂單流水號，系統只列為候選，請確認後再採用。")
+        st.caption("只把明確標示為料號、Part Number、P/N 等欄位當作料號；訂單號碼不會自動當成料號。")
         st.dataframe(extracted["料號候選清單"], use_container_width=True, hide_index=True)
     if extracted.get("數量辨識狀態"):
         if extracted.get("_來源") == "Excel":
@@ -416,15 +417,15 @@ if "_last_request_signature" not in st.session_state or upload_signature != st.s
         st.session_state[field_key] = field_value
 
 st.subheader("2. 每次重新輸入採購單資料")
-st.info("訂單號碼會在產生文件時自動設為完整客戶料號（手動前綴＋辨識到的料號），不再另外輸入。客戶料號前綴由你手動輸入。供應商名稱、聯絡人、電話預設留白；價格保留範本預設「打包價 USD$450」，付款方式保留「月結 60 天」，請依實際訂單核對；交貨地點保留本公司「銘星科技有限公司」，製表者保留「劉曼姣」。採購數量與申請資料不同時，必須人工核對並勾選確認。")
+st.info("訂單號碼格式固定為 MH26A-10-XXX：MH26A-10- 是固定前綴，最後的 XXX 由你自行輸入流水號。客戶料號與訂單號碼是不同欄位，互不連動。每次修改欄位後，請重新按「產生採購單 Word」，再下載最新產生的檔案。")
 
 with st.form("po_form"):
     left, right = st.columns(2)
     with left:
-        st.text_input("訂單號碼（自動等於完整客戶料號）", value=(st.session_state.get("prefix", "") + st.session_state.get("customer_pn", "")), disabled=True)
+        st.text_input("訂單號碼固定前綴", value="MH26A-10-", disabled=True)
+        order_suffix = st.text_input("訂單流水號 XXX（自行填寫）*", key="order_suffix", placeholder="例如：035")
         order_date = st.text_input("訂購日期 *", value=date.today().strftime("%Y/%m/%d"))
-        prefix = st.text_input("客戶料號前綴（手動輸入，可留空）", placeholder="例如 901-", key="prefix")
-        customer_pn = st.text_input("客戶料號（不含前綴）*", key="customer_pn")
+        customer_pn = st.text_input("客戶料號（依來源料號欄位填寫）*", key="customer_pn")
         internal_pn = st.text_input("銘星料號 *")
         product_name = st.text_input("項目／產品名稱 *", key="product_name")
         qty = st.text_input("訂購數量（採購單實際下單量）*", placeholder="例如：60 pcs + 備品 2 set", key="qty")
@@ -453,11 +454,11 @@ with st.form("po_form"):
     submitted = st.form_submit_button("產生採購單 Word", type="primary")
 
 if submitted:
-    # 使用完整客戶料號（手動前綴 + 申請單辨識料號）作為訂單號碼。
-    final_customer_pn = prefix.strip() + customer_pn.strip()
-    order_no = final_customer_pn
+    # 訂單號碼使用固定前綴與使用者輸入的流水號，絕不以料號代替。
+    order_no = "MH26A-10-" + order_suffix.strip()
+    final_customer_pn = customer_pn.strip()
     required = {
-        "訂單號碼": order_no, "訂購日期": order_date, "客戶料號": customer_pn,
+        "訂單號碼流水號 XXX": order_suffix, "訂購日期": order_date, "客戶料號": customer_pn,
         "銘星料號": internal_pn, "項目／產品名稱": product_name, "訂購數量": qty,
         "價格／打包價": price, "交期": due, "交貨地點": delivery, "付款方式": payment,
         "廠商名稱": supplier, "聯絡人": contact, "聯絡電話": phone,
@@ -491,21 +492,21 @@ if submitted:
             "901-W00G-F1012TSA3": final_customer_pn,
             "M056D6026A2": internal_pn,
             "印刷電路板": product_name,
-            "8pcs + 備品 2 set ***打樣不收單報": qty,
-            "打包價 USD$450": price,
-            "10/30/2026 前到銘星": due,
-            "月結 60 天": payment,
+            "8pcs + 備品2 set ***打樣不收單報": qty,
+            "打包價USD$450": price,
+            "10/30/2026前到銘星": due,
+            "月結 60天": payment,
             "比斯捷科技(深圳)有限公司": supplier,
             "熊小輝": contact,
             "137 14444 4149": phone,
-            "請完全依照銘星提供之資料製作": production,
-            "FR-4 TG150 (或同等級) / 6L / 板厚 1.6mm": material,
+            "請完全依照銘星提供之資料製作  *請注意板件上不能有Made In Taiwan 字樣": production,
+            "FR-4 TG150 (或同等級) / 6L / 板厚1.6mm": material,
             "內層 1 oz / 外層 1 oz": copper,
             "亮面綠色 / 文字白色": solder,
-            '鍍金厚度 : 足      2 μ" (MIN) ；鍍鎳厚度 : 足    120    μ" (MIN)': finish,
-            "IPC 2 級": inspection,
-            "打叉方式 :黑筆雙面打叉 , 4 UP 允收單報 , 訂單總數 5%內 (此批打樣不收單報)": notes,
-            "透明真空袋+濕度卡(放側邊)+乾燥包 6g(放側邊)": packaging,
+            '鍍金厚度 : 足  2 μ" (MIN) ；鍍鎳厚度 : 足  120  μ" (MIN)': finish,
+            "IPC 2級": inspection,
+            "打叉方式 :黑筆雙面打叉 , 4 UP允收單報 , 訂單總數5%內 (此批打樣不收單報)": notes,
+            "透明真空袋+濕度卡(放側邊)+乾燥包6g(放側邊)": packaging,
             "Sally 劉曼姣": maker,
         }
         try:
@@ -517,14 +518,15 @@ if submitted:
             # 檔名使用完整客戶料號＋供應商名稱，並清除 Windows 不允許的檔名字元。
             safe_pn = re.sub(r'[<>:"/\\|?*]', "_", final_customer_pn).strip(" ._")
             safe_supplier = re.sub(r'[<>:"/\\|?*]', "_", supplier).strip(" ._")
-            output_filename = f"{safe_pn}_{safe_supplier}.docx" if safe_pn and safe_supplier else f"{safe_pn or '採購單'}_{safe_supplier or '未填供應商'}.docx"
+            safe_order = re.sub(r'[<>:"/\\|?*]', "_", order_no).strip(" ._")
+            output_filename = f"{safe_order}_{safe_supplier}.docx" if safe_order and safe_supplier else f"{safe_order or '採購單'}_{safe_supplier or '未填供應商'}.docx"
             st.download_button(
                 "下載採購單 Word",
                 data=output_bytes.getvalue(),
                 file_name=output_filename,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
-            st.success("已產生文件。請下載後用 Word 檢查版面、料號前綴、日期、數量、備註及頁首頁尾。")
+            st.success(f"已重新產生最新版本：訂單號碼 {order_no}。若之後又修改欄位，請再次按「產生採購單 Word」再下載。")
             st.warning("目前依範本既有文字進行替換。若範本原文有變更，需同步更新 app.py 的 replacements 對照表。")
         except Exception as exc:
             st.error(f"產生失敗：{exc}")
