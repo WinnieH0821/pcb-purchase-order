@@ -437,7 +437,7 @@ with st.form("po_form"):
         qty = st.text_input("訂購數量（採購單實際下單量）*", placeholder="例如：60 pcs + 備品 2 set", key="qty")
         price = st.text_input("價格／打包價 *", key="price", placeholder="例如：打包價 USD$450")
         due_date_input = st.date_input("交期 *（點選日曆選日期）", value=date.today(), format="YYYY/MM/DD")
-        due = due_date_input.strftime("%Y/%m/%d")
+        due = due_date_input.strftime("%Y/%m/%d") + " 前到銘星"
         delivery = st.text_input("交貨地點 *", key="delivery")
         payment = st.text_input("付款方式 *", key="payment")
     with right:
@@ -459,7 +459,7 @@ with st.form("po_form"):
 if submitted:
     # 訂單號碼整欄可編輯；預設 MH26A-10-XXX，由使用者自行改成完整編號。
     order_no = order_no_input.strip()
-    due = due_date_input.strftime("%Y/%m/%d")
+    due = due_date_input.strftime("%Y/%m/%d") + " 前到銘星"
     final_customer_pn = customer_pn.strip()
     required = {
         "訂單號碼": order_no, "訂購日期": order_date, "客戶料號": customer_pn,
