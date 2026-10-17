@@ -49,18 +49,23 @@ SUPPLIERS = {
 
 
 def apply_supplier_code(part_number, supplier_name):
-    """依供應商代號加上客戶料號前綴，避免重複加碼。"""
+    """只移除已建檔的供應商代號；保留 3403105-EXP 這類本身屬於料號的數字前綴。"""
     pn = str(part_number or "").strip()
     if not pn:
         return ""
+    # 僅移除供應商主檔中已知的公司代號，不把任意「數字-」誤認成公司代號。
+    known_codes = {
+        str(info.get("code", "")).strip()
+        for info in SUPPLIERS.values()
+        if str(info.get("code", "")).strip()
+    }
+    for known_code in sorted(known_codes, key=len, reverse=True):
+        pn = re.sub(rf"^{re.escape(known_code)}-", "", pn)
     supplier_info = SUPPLIERS.get(str(supplier_name or "").strip(), {})
     code = str(supplier_info.get("code", "")).strip()
-    # 先移除原有數字代號，再依目前供應商重新套用，避免換供應商後保留舊代號。
-    pn = re.sub(r"^\d+-", "", pn)
     if not code:
         return pn
     return f"{code}-{pn}"
-
 
 def on_supplier_change():
     supplier_name = str(st.session_state.get("supplier", "") or "").strip()
