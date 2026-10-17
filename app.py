@@ -37,6 +37,40 @@ def quantities_match(request_value, order_value):
         return request_number == order_number and units_match
     return request_norm == order_norm
 
+# 供應商主檔：目前先建立第一家；後續供應商可沿用相同欄位結構新增。
+SUPPLIERS = {
+    "比斯捷科技(深圳)有限公司": {
+        "contact": "熊小輝",
+        "phone": "137 14444 4149",
+        "code": "901",
+    },
+}
+
+
+def apply_supplier_code(part_number, supplier_name):
+    """依供應商代號加上客戶料號前綴，避免重複加碼。"""
+    pn = str(part_number or "").strip()
+    if not pn:
+        return ""
+    supplier_info = SUPPLIERS.get(str(supplier_name or "").strip(), {})
+    code = str(supplier_info.get("code", "")).strip()
+    # 先移除原有數字代號，再依目前供應商重新套用，避免換供應商後保留舊代號。
+    pn = re.sub(r"^\d+-", "", pn)
+    if not code:
+        return pn
+    return f"{code}-{pn}"
+
+
+def on_supplier_change():
+    supplier_name = str(st.session_state.get("supplier", "") or "").strip()
+    supplier_info = SUPPLIERS.get(supplier_name, {})
+    st.session_state["contact"] = supplier_info.get("contact", "")
+    st.session_state["phone"] = supplier_info.get("phone", "")
+    st.session_state["customer_pn"] = apply_supplier_code(
+        st.session_state.get("customer_pn", ""), supplier_name
+    )
+
+
 st.set_page_config(page_title="PCB 採購單產生器", page_icon="📄", layout="wide")
 st.title("PCB 採購單自動產生器")
 st.caption("申請資料支援 Word / Excel；輸出一律為 Word。輸出前請人工核對料號、數量與交期。")
@@ -401,9 +435,9 @@ if "_last_request_signature" not in st.session_state or upload_signature != st.s
             "請完全依照銘星提供之資料製作；請注意板件上不能有 Made In Taiwan 字樣"
         ),
         # 供應商相關欄位每次由使用者自行填寫；保留本公司交貨地點。
-        "supplier": "",
-        "contact": "",
-        "phone": "",
+        "supplier": "比斯捷科技(深圳)有限公司",
+        "contact": "熊小輝",
+        "phone": "137 14444 4149",
         "price": "打包價 USD$450",
         "payment": "月結 60 天",
         "delivery": "銘星科技有限公司",
@@ -416,6 +450,9 @@ if "_last_request_signature" not in st.session_state or upload_signature != st.s
     }
     for field_key, field_value in auto_fields.items():
         st.session_state[field_key] = field_value
+    st.session_state["customer_pn"] = apply_supplier_code(
+        st.session_state.get("customer_pn", ""), st.session_state.get("supplier", "")
+    )
 
 # 將既有工作階段的舊預設值更新一次，並保留使用者已修改的銘星料號。
 if st.session_state.get("maker") == "劉曼姣":
@@ -424,14 +461,41 @@ if not st.session_state.get("internal_pn"):
     st.session_state["internal_pn"] = "M056D6026A2"
 
 st.subheader("2. 每次重新輸入採購單資料")
-st.info("訂單號碼格式固定為 MH26A-10-XXX：MH26A-10- 是固定前綴，最後的 XXX 由你自行輸入流水號。客戶料號與訂單號碼是不同欄位，互不連動。每次修改欄位後，請重新按「產生採購單 Word」，再下載最新產生的檔案。")
+current_order_prefix = f"MH{date.today().strftime('%y')}A-{date.today().strftime('%m')}-"
+previous_default = st.session_state.get("_last_order_no_default")
+current_order_value = st.session_state.get("order_no")
+if (
+    "order_no" not in st.session_state
+    or current_order_value == previous_default
+    or re.fullmatch(r"MH\d{2}A-\d{2}-XXX", str(current_order_value or ""))
+):
+    st.session_state["order_no"] = current_order_prefix
+st.session_state["_last_order_no_default"] = current_order_prefix
+
+st.info(f"訂單編號會依目前月份自動帶入前綴：{current_order_prefix}；請直接在同一欄位最後輸入流水號，例如 {current_order_prefix}035。客戶料號會依供應商代號自動補上前綴。")
+
+st.markdown("#### 供應商與客戶料號")
+supplier = st.selectbox(
+    "廠商名稱 *（可下拉選擇，也可直接輸入新名稱）",
+    options=list(SUPPLIERS.keys()),
+    index=0 if st.session_state.get("supplier") in (None, "") else None,
+    accept_new_options=True,
+    key="supplier",
+    on_change=on_supplier_change,
+    help="目前已建檔：比斯捷科技(深圳)有限公司；選取後會自動帶入聯絡人、電話與已設定的公司代號。",
+)
+contact_col, phone_col = st.columns(2)
+with contact_col:
+    contact = st.text_input("聯絡人 *", key="contact")
+with phone_col:
+    phone = st.text_input("聯絡電話 *", key="phone")
+customer_pn = st.text_input("客戶料號（選擇供應商後自動加上公司代號，可手動修改）*", key="customer_pn")
 
 with st.form("po_form"):
     left, right = st.columns(2)
     with left:
-        order_no_input = st.text_input("訂單號碼 *（可直接編輯完整編號）", value="MH26A-10-XXX", key="order_no", help="預設為 MH26A-10-XXX；請直接修改最後的 XXX，例如 MH26A-10-035。")
+        order_no_input = st.text_input("訂單號碼 *（月份自動帶入，流水號自行輸入）", key="order_no", help="月份會依目前日期自動更新；請在最後的連字號後輸入流水號，例如 MH26A-11-035。")
         order_date = st.text_input("訂購日期 *", value=date.today().strftime("%Y/%m/%d"))
-        customer_pn = st.text_input("客戶料號（依來源料號欄位填寫）*", key="customer_pn")
         internal_pn = st.text_input("銘星料號 *", key="internal_pn")
         product_name = st.text_input("項目／產品名稱 *", key="product_name")
         qty = st.text_input("訂購數量（採購單實際下單量）*", placeholder="例如：60 pcs + 備品 2 set", key="qty")
@@ -441,9 +505,6 @@ with st.form("po_form"):
         delivery = st.text_input("交貨地點 *", key="delivery")
         payment = st.text_input("付款方式 *", key="payment")
     with right:
-        supplier = st.text_input("廠商名稱 *", key="supplier")
-        contact = st.text_input("聯絡人 *", key="contact")
-        phone = st.text_input("聯絡電話 *", key="phone")
         production = st.text_area("製作內容／特殊要求 *", height=90, key="production")
         material = st.text_input("材料板厚 *", key="material")
         copper = st.text_input("銅厚 *", key="copper")
@@ -460,7 +521,7 @@ if submitted:
     # 訂單號碼整欄可編輯；預設 MH26A-10-XXX，由使用者自行改成完整編號。
     order_no = order_no_input.strip()
     due = due_date_input.strftime("%Y/%m/%d") + " 前到銘星"
-    final_customer_pn = customer_pn.strip()
+    final_customer_pn = apply_supplier_code(customer_pn.strip(), supplier)
     required = {
         "訂單號碼": order_no, "訂購日期": order_date, "客戶料號": customer_pn,
         "銘星料號": internal_pn, "項目／產品名稱": product_name, "訂購數量": qty,
@@ -506,11 +567,13 @@ if submitted:
             output_bytes = io.BytesIO()
             doc.save(output_bytes)
             output_bytes.seek(0)
-            # 檔名使用完整客戶料號＋供應商名稱，並清除 Windows 不允許的檔名字元。
-            safe_pn = re.sub(r'[<>:"/\\|?*]', "_", final_customer_pn).strip(" ._")
-            safe_supplier = re.sub(r'[<>:"/\\|?*]', "_", supplier).strip(" ._")
-            safe_order = re.sub(r'[<>:"/\\|?*]', "_", order_no).strip(" ._")
-            output_filename = f"{safe_order}_{safe_supplier}.docx" if safe_order and safe_supplier else f"{safe_order or '採購單'}_{safe_supplier or '未填供應商'}.docx"
+            # 檔名使用銘星料號＋供應商簡稱（例如「M056D6026A2_比斯捷.docx」）。
+            safe_internal_pn = re.sub(r'[<>:"/\\|?*]', "_", internal_pn.strip()).strip(" ._")
+            supplier_short = re.sub(r"(科技.*|有限公司.*|有限责任公司.*|股份有限公司.*|公司.*)$", "", supplier.strip()).strip()
+            if not supplier_short:
+                supplier_short = supplier.strip()
+            safe_supplier_short = re.sub(r'[<>:"/\\|?*]', "_", supplier_short).strip(" ._")
+            output_filename = f"{safe_internal_pn or '銘星料號'}_{safe_supplier_short or '供應商'}.docx"
             st.download_button(
                 "下載採購單 Word",
                 data=output_bytes.getvalue(),
